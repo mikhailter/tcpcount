@@ -1,37 +1,32 @@
-#!/bin/bash
+#!/bin/sh
 
 DEFAULT_PORT=443
 CACHE="/tmp/rdns.cache"
 touch "$CACHE"
 
-# ----
-
 PORT=$1
+[ -z "$PORT" ] && PORT="$DEFAULT_PORT"
 
 printf "%-5s %-15s %-35s\n" "CNT" "IP" "HOSTNAME/ISP"
 
-if [ -z "$PORT" ]; then
-        PORT="$DEFAULT_PORT"
+OS=$(uname)
+
+if [ "$OS" = "FreeBSD" ]; then
+    MY_IP=$(ifconfig | awk '/inet / && $2 != "127.0.0.1" {print $2; exit}')
+    CONNS=$(netstat -an -f inet | grep ESTABLISHED | grep "$MY_IP.$PORT " | awk '{print $5}' | sed 's/\.[0-9]*$//')
+else
+    CONNS=$(ss -tn state established "sport = :$PORT" | tail -n +2 | awk '{print $NF}' | sed 's/:.*//')
 fi
 
-# list active connections
-ss -tn state established "sport = :$PORT" \
-| tail -n +2 \
-| awk '{print $NF}' \
-| sed 's/:.*$//' \
-| sort | uniq -c | sort -nr \
-| while read count ip; do
+echo "$CONNS" | sort | uniq -c | sort -nr | while read count ip; do
     [ -z "$ip" ] && continue
 
-    # check for cache
     host=$(grep "^$ip " "$CACHE" | awk '{print $2}')
 
     if [ -z "$host" ] || [ "$host" = "no-rdns" ]; then
-        # PTR lookup
-        host=$(getent hosts "$ip" | awk '{print $2}')
+        host=$(getent hosts "$ip" 2>/dev/null | awk '{print $2}')
 
         if [ -z "$host" ]; then
-            # fallback: whois
             host=$(whois "$ip" 2>/dev/null \
                 | grep -Ei 'OrgName|org-name|descr|netname' \
                 | head -n1 \
@@ -41,7 +36,6 @@ ss -tn state established "sport = :$PORT" \
 
         host=${host:-no-rdns}
 
-        # save to cache
         echo "$ip $host" >> "$CACHE"
     fi
 
