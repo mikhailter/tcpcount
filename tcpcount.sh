@@ -15,13 +15,17 @@ if [ "$OS" = "FreeBSD" ]; then
     MY_IP=$(ifconfig | awk '/inet / && $2 != "127.0.0.1" {print $2; exit}')
     CONNS=$(netstat -an -f inet | grep ESTABLISHED | grep "$MY_IP.$PORT " | awk '{print $5}' | sed 's/\.[0-9]*$//')
 else
-    CONNS=$(ss -tn state established "sport = :$PORT" | tail -n +2 | awk '{print $NF}' | sed 's/:.*//')
+    CONNS=$(ss -tn state established "sport = :$PORT" | tail -n +2 \
+        | awk '{print $NF}' \
+        | sed -E 's/^\[//;s/\]$//' \
+        | sed 's/:.*//')
 fi
 
 echo "$CONNS" | sort | uniq -c | sort -nr | while read count ip; do
     [ -z "$ip" ] && continue
 
-    host=$(grep "^$ip " "$CACHE" | awk '{print $2}')
+    # безопасный поиск в кеше (без regex)
+    host=$(awk -v ip="$ip" '$1 == ip {print $2}' "$CACHE")
 
     if [ -z "$host" ] || [ "$host" = "no-rdns" ]; then
         host=$(getent hosts "$ip" 2>/dev/null | awk '{print $2}')
