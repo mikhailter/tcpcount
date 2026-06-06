@@ -24,12 +24,22 @@ fi
 echo "$CONNS" | sort | uniq -c | sort -nr | while read count ip; do
     [ -z "$ip" ] && continue
 
-    # безопасный поиск в кеше (без regex)
+    # кеш lookup (без regex)
     host=$(awk -v ip="$ip" '$1 == ip {print $2}' "$CACHE")
 
     if [ -z "$host" ] || [ "$host" = "no-rdns" ]; then
+
+        # rDNS
         host=$(getent hosts "$ip" 2>/dev/null | awk '{print $2}')
 
+        # фильтр мусорных PTR (in-addr.arpa)
+        case "$host" in
+            *in-addr.arpa*|*ip6.arpa*)
+                host=""
+                ;;
+        esac
+
+        # fallback: whois
         if [ -z "$host" ]; then
             host=$(whois "$ip" 2>/dev/null \
                 | grep -Ei 'OrgName|org-name|descr|netname' \
@@ -40,6 +50,7 @@ echo "$CONNS" | sort | uniq -c | sort -nr | while read count ip; do
 
         host=${host:-no-rdns}
 
+        # кешируем только валидные значения
         echo "$ip $host" >> "$CACHE"
     fi
 
